@@ -1,0 +1,39 @@
+TAKEBOX MCP
+Copyright 2026 Chawanvit Vuthikornudomkit
+
+Developed by PHASECRAFT, Bangkok, Thailand.
+
+Licensed under the Apache License, Version 2.0. You may add your own copyright
+statement to your own modifications and extensions, and license those on your
+own terms — Section 4 permits exactly that. What you may not do is remove the
+attribution notices above from the source you received.
+
+TRADEMARKS
+
+TAKEBOX and PHASECRAFT, together with the TAKEBOX and PHASECRAFT logos and
+wordmarks (the brand image files, but not the typefaces under fonts/), are
+trademarks of Chawanvit Vuthikornudomkit. Section 6 of the License grants no
+rights to use them. A fork may use this code freely; it must not present itself
+as TAKEBOX or PHASECRAFT, and must remove the brand assets.
+
+THIRD PARTIES
+
+The sound board page (dist/board/) carries its third-party code and typefaces
+with their licence texts in dist/board/licences.txt: React, wavesurfer.js and
+Lucide, and the typefaces Inter (Rasmus Andersson) and DM Mono (Colophon Foundry
+for Google), both under the SIL Open Font License 1.1. The font files are
+redistributed under that licence and are not covered by the Apache-2.0 grant
+above.
+
+The server's npm dependencies are installed by npm from their own packages and
+are not copied into this one: the MCP TypeScript SDK and zod (MIT), and the
+WebAssembly audio codecs (MIT wrappers around mpg123 and LAME, both LGPL, and
+libvorbis, libopus and libFLAC, BSD). Each codec is a separate module that can
+be replaced with another build, as the LGPL asks.
+
+ElevenLabs and the ElevenLabs logo are registered trademarks or trademarks of
+ElevenLabs, Inc. Used with permission. TAKEBOX is not sponsored by, endorsed by,
+or affiliated with ElevenLabs except as an independent participant in the
+ElevenLabs Creator Affiliate Program. TAKEBOX is an independent client that
+speaks to the ElevenLabs API using a key you supply. The ElevenLabs sign-up link
+in the README is an affiliate link.

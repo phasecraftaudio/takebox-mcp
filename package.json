@@ -1,0 +1,22 @@
+{
+  "name": "takebox-mcp-repo",
+  "private": true,
+  "description": "The TAKEBOX MCP repository. The package is in mcp/; this file only installs what builds its sound board page.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix mcp run build",
+    "test": "npm --prefix mcp test",
+    "typecheck": "npm --prefix mcp run typecheck"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "vite": "6.4.3",
+    "wavesurfer.js": "7.12.11"
+  }
+}
