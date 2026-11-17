@@ -69,10 +69,22 @@ export interface SoundRecord {
  * rejected. `derived` marks an edit of another take (a tool or a region): it has no original and
  * is remade from its own file. `loopable` is what processing actually achieved, not the kind asked
  * for (Codex review 2026-11-09, findings 2 and 11).
+ *
+ * ⚠️ `cut` is a position, not a piece of audio: "the third thing the splitter found". It names
+ * the same audio only while the splitter still finds the same things in that original, and a
+ * later TAKEBOX may split differently (the footstep rule of 2026-11-10 turned 21 pieces into 9).
+ * `cuts` is how many the original split into when this take was made and `preset` is the split
+ * preset that found them, so a re-finish cuts the same way again, can tell when the numbers
+ * have moved anyway, and refuses instead of writing other audio under the same file names.
+ * Takes made by 0.1.0 have neither, and 0.1.0 split with whatever preset was asked for, so their
+ * numbers cannot be trusted: a re-finish refuses them unless a preset is named, and then cuts the
+ * original afresh, new takes with new numbers that record both (Codex 2026-11-15).
  */
 export interface TakeInfo {
   original?: string;
   cut?: number;
+  cuts?: number;
+  preset?: string;
   derived?: boolean;
   loopable?: boolean;
 }

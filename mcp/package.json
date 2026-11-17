@@ -1,6 +1,6 @@
 {
   "name": "@phasecraftaudio/takebox-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TAKEBOX as an MCP server: sound for your game, planned, generated, trimmed, levelled and named so your AI can wire it in.",
   "license": "Apache-2.0",
   "author": "PHASECRAFT (https://phasecraftaudio.com)",

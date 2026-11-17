@@ -32,7 +32,7 @@ import { searchSounds } from "./search.js";
 import { createServices, learnedRate, type ServiceOptions } from "./services.js";
 import { STYLE_PRESETS } from "./styles.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export type ServerOptions = ServiceOptions & {
   /** Tests: start boards without opening a browser. */
@@ -362,7 +362,11 @@ export function createServer(options: ServerOptions = {}) {
         files: z.array(z.string()).optional().describe("Files or folders (absolute, or relative to the project) to bring in."),
         name: z.string().optional().describe("With files: one name for all of them (they become its variations). Otherwise each keeps its own name."),
         shape: z.enum(["auto", ...SHAPES]).default("auto").describe("auto (by the sound's kind; plain files are trimmed), trim, loop, split, none."),
-        split_preset: z.enum(SPLIT_PRESETS).optional(),
+        split_preset: z.enum(SPLIT_PRESETS).optional().describe(
+          "Splits only: how to find each hit. Leave it out when re-finishing by name: the sound is cut the way it was made and its takes keep their numbers. " +
+            "Name one to cut a made sound again from its original: if the cuts come out different, every take from it is new and renumbered, and cuts rejected before come back. " +
+            "A split made by TAKEBOX 0.1.0 has no preset on record, so it needs one named, and its takes are always new.",
+        ),
         level: z.union([z.enum(["role", "off"]), z.number().min(-40).max(-6)]).default("role").describe('"role" (by role), "off", or a LUFS target.'),
         role: z.enum(ROLES).optional(),
         channels: z.enum(CHANNEL_MODES).optional(),

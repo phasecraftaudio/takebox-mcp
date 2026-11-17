@@ -13,7 +13,7 @@ import { compareSet, type Analysis } from "./audio/analyze.js";
 import { AUDIO_EXTENSIONS, decodeFile, EXTENSION, writableFormats, type EncodeOptions, type Format, type Quality } from "./audio/codecs.js";
 import type { Role } from "./audio/level.js";
 import type { WavDepth } from "./audio/pcm.js";
-import { processTake, writePieces, type FinishOptions, type Shape, type WrittenPiece } from "./finish.js";
+import { processTake, SPLIT_PRESETS, writePieces, type FinishOptions, type Shape, type WrittenPiece } from "./finish.js";
 import {
   AUDITIONS_DIR, ensureDir, inside, loadManifest, Namer, ORIGINALS_DIR, ProjectError, sanitizeName, toProjectPath, updateManifest,
   withSoundLock, type ChannelMode, type Kind, type Manifest, type Settings, type SoundRecord, type TakeInfo,
@@ -330,7 +330,7 @@ export async function makeSounds(ctx: Context, specs: SoundSpec[], options: Make
           for (const piece of written) {
             const own = piece.files.map((file) => toProjectPath(ctx.root, file));
             files.push(...own);
-            takes[stemOf(own[0]!)] = { original, ...(item.kind === "sequence" ? { cut: piece.cut } : {}), loopable: piece.loopable };
+            takes[stemOf(own[0]!)] = { original, ...(item.kind === "sequence" ? { cut: piece.cut, cuts: written.length, ...(finish.splitPreset ? { preset: finish.splitPreset } : {}) } : {}), loopable: piece.loopable };
           }
           return { files, takes };
         };
@@ -488,7 +488,12 @@ function optionsFor(ctx: Context, input: FinishInput, kind: Kind, role: Role): F
  * 2026-11-10, R1–R4):
  *
  * 1. Plan. Only takes still in the game are remade, each from its own original (and only its own
- *    cuts of a split); a rejected take stays out. Paid originals that never got a finished file
+ *    cuts of a split); a rejected take stays out. A cut is remade by its number, so the split
+ *    has to find the same cuts again: it uses the preset the takes were made with, and must find
+ *    as many cuts as it did then. If it does not, the numbers name other audio now and the whole
+ *    re-finish is refused (see `TakeInfo`); so is a split made by 0.1.0, which recorded no preset.
+ *    Asking for a split preset by name is the way to cut
+ *    an original afresh: every cut of it is then new, numbered anew, and said so. Paid originals that never got a finished file
  *    (`pending`) are made too. An edit (a tool result or a region) is remade from its own file and,
  *    unless a shape is asked for, keeps its shape and level: a format change re-encodes it, so a
  *    loop made on the board stays a loop.
@@ -517,7 +522,10 @@ async function refinishMade(ctx: Context, name: string, input: FinishInput, fold
     const fail = (errors: string[]): FinishReport => ({ name, files: record.files, notices: [], measured: [], errors });
 
     // Which source remakes each take.
-    type Source = { original?: string; cuts: Set<number> | null; edit?: { loopable: boolean; stem: string } };
+    // `counted` and `presets`: how many cuts the original had when its takes on record were made,
+    // and the split preset that found them. `unrecorded`: a take on record has a cut number but no
+    // preset (TAKEBOX 0.1.0 kept only the number), so which preset found that cut is not known.
+    type Source = { original?: string; cuts: Set<number> | null; counted: Set<number>; presets: Set<string>; unrecorded: boolean; edit?: { loopable: boolean; stem: string } };
     const sources = new Map<string, Source>();
     const retired = new Set<string>();
     // A take is the same take after a re-finish when it comes from the same original and cut (or is
@@ -528,11 +536,14 @@ async function refinishMade(ctx: Context, name: string, input: FinishInput, fold
     const inFolder = (stem: string) => path.dirname(path.resolve(ctx.root, stem)) === folder;
     const untouched: string[] = [];
     const originals = record.originals ?? [];
-    const plan = (source: string, entry: Omit<Source, "cuts">, cut?: number) => {
+    const plan = (source: string, entry: Omit<Source, "cuts" | "counted" | "presets" | "unrecorded">, made?: TakeInfo) => {
       const full = path.resolve(ctx.root, source);
-      const current = sources.get(full) ?? { ...entry, cuts: new Set<number>() };
-      if (cut === undefined || options.shape !== "split") current.cuts = null;
-      else current.cuts?.add(cut);
+      const current = sources.get(full) ?? { ...entry, cuts: new Set<number>(), counted: new Set<number>(), presets: new Set<string>(), unrecorded: false };
+      if (made?.cut === undefined || options.shape !== "split") current.cuts = null;
+      else current.cuts?.add(made.cut);
+      if (made?.cut !== undefined && made.cuts !== undefined) current.counted.add(made.cuts);
+      if (made?.cut !== undefined && made.preset !== undefined) current.presets.add(made.preset);
+      if (made?.cut !== undefined && made.preset === undefined) current.unrecorded = true;
       sources.set(full, current);
     };
     for (const take of groupTakes(record.files)) {
@@ -540,7 +551,7 @@ async function refinishMade(ctx: Context, name: string, input: FinishInput, fold
       // Takes made before take records existed: name_07 came from name_take_07.
       const number = /_(\d+)$/.exec(take.stem)?.[1];
       const original = info?.original ?? (info?.derived ? undefined : number ? originals.find((file) => stemOf(path.basename(file)) === `${name}_take_${number}`) : undefined);
-      if (original) plan(original, { original }, info?.cut);
+      if (original) plan(original, { original }, info);
       else if (info?.derived) plan(take.files[0]!, { edit: { loopable: info.loopable ?? false, stem: take.stem } });
       else {
         untouched.push(take.stem);
@@ -565,10 +576,57 @@ async function refinishMade(ctx: Context, name: string, input: FinishInput, fold
       try {
         for (const [source, selection] of sources) {
           const audio = await decodeFile(source, ctx.signal);
-          const shaping = selection.edit ? editOptions : options;
+          // A split is cut the way its takes were made unless a preset is asked for by name: left
+          // to the default, a sound made with "cloth" was re-cut as footsteps and its cut numbers
+          // pointed at other audio.
+          const preset = input.split_preset ?? [...selection.presets][0] ?? options.splitPreset;
+          const shaping = selection.edit ? editOptions : options.shape === "split" && preset ? { ...options, splitPreset: preset } : options;
           const pieces = processTake(audio, shaping, role === "music" ? "music" : "sfx");
+          // Cuts are picked by number. If the split is not the one that made these takes (another
+          // preset, or the same preset finding a different number of cuts after a TAKEBOX update),
+          // the numbers no longer name the same audio: remaking "cut 3" would put another sound
+          // under the old take's file name, and a cut the person rejected could come back as one
+          // they kept. Nothing says which new cut is which old one. So by default nothing is
+          // remade; a preset asked for by name is taken as asking for a fresh cut.
+          // A split made by 0.1.0 has cut numbers but no preset: it may have been cut with any of
+          // them, so its numbers are never trusted, even with a preset named (Codex 2026-11-15:
+          // guessing footsteps put footstep pieces under a cloth sound's file names).
+          // Checked for every split, not only one that picks cuts: when a whole take of the same
+          // original asks for every piece, each piece still takes the number of the cut on record
+          // at its position (Codex 2026-11-17: a kept trim beside 0.1.0 cuts skipped the check).
+          let wanted = selection.cuts;
+          let afresh = false;
+          const fresh: string[] = [];
+          if (shaping.shape === "split") {
+            const otherPreset = [...selection.presets].find((made) => made !== preset);
+            const otherCount = [...selection.counted].find((count) => count !== pieces.length);
+            if (otherPreset !== undefined || otherCount !== undefined || selection.unrecorded) {
+              const file = toProjectPath(ctx.root, source);
+              const now = `${pieces.length} cut${pieces.length === 1 ? "" : "s"}`;
+              if (input.split_preset === undefined) {
+                const kept = `The finished files in the game are still the ones made then. `;
+                const afresh = `every cut will be new, and any cut rejected before will be back to listen to.`;
+                if (selection.unrecorded) {
+                  throw new ProjectError(
+                    `${file} was cut by TAKEBOX 0.1.0, which did not record which split preset found its cuts, ` +
+                      `so they cannot be remade by number: another preset would put other audio under the same file names. ${kept}` +
+                      `To cut it afresh from the original, re-finish it with split_preset set to the preset it was made with (${SPLIT_PRESETS.join(", ")}): ${afresh}`,
+                  );
+                }
+                const was = otherCount !== undefined ? `not the ${otherCount} it had when these takes were made` : `and its takes on record were not all cut with the ${preset} preset`;
+                throw new ProjectError(
+                  `${file} now splits into ${now}, ${was}, ` +
+                    `so the cuts on record no longer name the same pieces of it and cannot be remade by number. ${kept}` +
+                    `To cut it afresh from the original, re-finish it with split_preset: "${preset}": ${afresh}`,
+                );
+              }
+              wanted = null;
+              afresh = true;
+              fresh.push(`${file} was cut afresh with the ${preset} preset (${now}): every take from it is new and numbered anew, and any cut rejected before is back. Ask the person to listen again.`);
+            }
+          }
           for (const [cut, piece] of pieces.entries()) {
-            if (selection.cuts && !selection.cuts.has(cut)) continue;
+            if (wanted && !wanted.has(cut)) continue;
             // Left unshaped, an edit loops exactly as well as it did.
             if (selection.edit && shaping.shape === "none") piece.loopable = selection.edit.loopable;
             const [written] = await writePieces([piece], stage, "stage", shaping, stageNamer, ctx.signal);
@@ -576,12 +634,14 @@ async function refinishMade(ctx: Context, name: string, input: FinishInput, fold
               files: written!.files,
               info: {
                 ...(selection.original ? { original: selection.original } : { derived: true }),
-                ...(selection.original && kindAfter === "sequence" ? { cut } : {}),
+                ...(selection.original && kindAfter === "sequence" ? { cut, cuts: pieces.length, ...(shaping.splitPreset ? { preset: shaping.splitPreset } : {}) } : {}),
                 loopable: written!.loopable,
               },
-              notices: written!.notices,
+              // Said first, so the cap on a sound's notices cannot hide it.
+              notices: [...fresh.splice(0), ...written!.notices],
               analysis: written!.analysis,
-              identity: identity(selection.original ?? selection.edit!.stem, shaping.shape === "split" ? cut : undefined),
+              // A fresh cut is no earlier take, whatever its number: it never inherits a file name.
+              identity: afresh ? `${source}\nfresh ${cut}` : identity(selection.original ?? selection.edit!.stem, shaping.shape === "split" ? cut : undefined),
             });
           }
         }
